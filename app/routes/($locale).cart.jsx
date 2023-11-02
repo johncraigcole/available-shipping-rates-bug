@@ -61,6 +61,14 @@ export async function action({request, context}) {
       });
       break;
     }
+    case 'CreateCartWithBuyerIdentity': {
+      session.set('crashProtectionOn', inputs.crashProtectionOn);
+      result = await cart.createCartWithCurrentBuyerIdentity({
+        lines: inputs.lines,
+      });
+
+      break;
+    }
     default:
       throw new Error(`${action} cart action is not defined`);
   }

@@ -3,9 +3,12 @@ import * as remixBuild from '@remix-run/dev/server-build';
 import {
   cartGetIdDefault,
   cartSetIdDefault,
+  cartCreateDefault,
   createCartHandler,
   createStorefrontClient,
   storefrontRedirect,
+  cartBuyerIdentityUpdateDefault,
+  cartLinesAddDefault,
 } from '@shopify/hydrogen';
 import {
   createRequestHandler,
@@ -50,7 +53,12 @@ export default {
         storefrontId: env.PUBLIC_STOREFRONT_ID,
         storefrontHeaders: getStorefrontHeaders(request),
       });
-
+      const getQueryFragment = (requestHeaders) => {
+        const cookie = requestHeaders.get('cookie');
+        return /crashprotection\=off/.test(cookie)
+          ? AVAILABLE_SHIP_RATES_BUG_FRAGMENT
+          : CART_QUERY_FRAGMENT;
+      };
       /*
        * Create a cart handler that will be used to
        * create and update the cart in the session.
@@ -59,7 +67,41 @@ export default {
         storefront,
         getCartId: cartGetIdDefault(request.headers),
         setCartId: cartSetIdDefault(),
-        cartQueryFragment: CART_QUERY_FRAGMENT,
+        cartQueryFragment: getQueryFragment(request.headers),
+        customMethods: {
+          createCartWithCurrentBuyerIdentity: async ({lines}) => {
+            // Using Hydrogen default cart query methods
+
+            const customerAccessToken = session.get('customerAccessToken');
+            if (!customerAccessToken) {
+              throw new Error(
+                'Please login before trying to use this cart creation method.',
+              );
+            }
+
+            const getCartId = cartGetIdDefault(request.headers);
+
+            if (!getCartId()) {
+              // Create a new cart with the lines provided and the current access token
+              return await cartCreateDefault({
+                storefront,
+              })({
+                lines,
+                buyerIdentity: {
+                  customerAccessToken: customerAccessToken.accessToken,
+                },
+              });
+            }
+            console.log(lines);
+            await cartLinesAddDefault({storefront, getCartId})(lines);
+            return await cartBuyerIdentityUpdateDefault({
+              storefront,
+              getCartId,
+            })({
+              customerAccessToken: customerAccessToken.accessToken,
+            });
+          },
+        },
       });
 
       /**
@@ -179,6 +221,114 @@ export class HydrogenSession {
   }
 }
 
+const AVAILABLE_SHIP_RATES_BUG_FRAGMENT = `#graphql
+fragment Money on MoneyV2 {
+  currencyCode
+  amount
+}
+fragment CartLine on CartLine {
+  id
+  quantity
+  attributes {
+    key
+    value
+  }
+  cost {
+    totalAmount {
+      ...Money
+    }
+    amountPerQuantity {
+      ...Money
+    }
+    compareAtAmountPerQuantity {
+      ...Money
+    }
+  }
+  merchandise {
+    ... on ProductVariant {
+      id
+      availableForSale
+      compareAtPrice {
+        ...Money
+      }
+      price {
+        ...Money
+      }
+      requiresShipping
+      title
+      image {
+        id
+        url
+        altText
+        width
+        height
+
+      }
+      product {
+        handle
+        title
+        id
+      }
+      selectedOptions {
+        name
+        value
+      }
+    }
+  }
+}
+fragment CartApiQuery on Cart {
+  id
+  checkoutUrl
+  totalQuantity
+  buyerIdentity {
+    countryCode
+    customer {
+      id
+      email
+      firstName
+      lastName
+      displayName
+      lastIncompleteCheckout{
+        availableShippingRates {
+          shippingRates {
+            handle
+          }
+        }
+      }
+    }
+    email
+    phone
+  }
+  lines(first: $numCartLines) {
+    nodes {
+      ...CartLine
+    }
+  }
+  cost {
+    subtotalAmount {
+      ...Money
+    }
+    totalAmount {
+      ...Money
+    }
+    totalDutyAmount {
+      ...Money
+    }
+    totalTaxAmount {
+      ...Money
+    }
+  }
+  note
+  attributes {
+    key
+    value
+  }
+  discountCodes {
+    code
+    applicable
+  }
+}
+`;
 // NOTE: https://shopify.dev/docs/api/storefront/latest/queries/cart
 const CART_QUERY_FRAGMENT = `#graphql
   fragment Money on MoneyV2 {
@@ -247,6 +397,7 @@ const CART_QUERY_FRAGMENT = `#graphql
         firstName
         lastName
         displayName
+
       }
       email
       phone

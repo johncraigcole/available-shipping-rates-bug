@@ -1,6 +1,12 @@
 import {Suspense} from 'react';
 import {defer, redirect} from '@shopify/remix-oxygen';
-import {Await, Link, useLoaderData} from '@remix-run/react';
+import {
+  Await,
+  Link,
+  useLoaderData,
+  useParams,
+  useRouteError,
+} from '@remix-run/react';
 
 import {
   Image,
@@ -17,7 +23,17 @@ import {getVariantUrl} from '~/utils';
 export const meta = ({data}) => {
   return [{title: `Hydrogen | ${data?.product.title ?? ''}`}];
 };
-
+export function ErrorBoundary() {
+  const error = useRouteError();
+  console.log(error);
+  const routeParam = useParams();
+  return (
+    <>
+      <h1>{error.message}</h1>
+      <Link to={routeParam}>Lets Try That Again</Link>
+    </>
+  );
+}
 /**
  * @param {LoaderFunctionArgs}
  */
@@ -248,6 +264,50 @@ function ProductForm({product, selectedVariant, variants}) {
       >
         {selectedVariant?.availableForSale ? 'Add to cart' : 'Sold out'}
       </AddToCartButton>
+      <br />
+      <AddToCartButton
+        disabled={!selectedVariant || !selectedVariant.availableForSale}
+        action="CreateCartWithBuyerIdentity"
+        onClick={() => {
+          document.cookie = 'crashprotection=on; path=/';
+        }}
+        lines={
+          selectedVariant
+            ? [
+                {
+                  merchandiseId: selectedVariant.id,
+                  quantity: 1,
+                },
+              ]
+            : []
+        }
+      >
+        {selectedVariant?.availableForSale
+          ? 'Add To Cart with Buyer Identity'
+          : 'Sold out'}
+      </AddToCartButton>
+      <br />
+      <AddToCartButton
+        disabled={!selectedVariant || !selectedVariant.availableForSale}
+        action="CreateCartWithBuyerIdentity"
+        onClick={() => {
+          document.cookie = 'crashprotection=off; path=/';
+        }}
+        lines={
+          selectedVariant
+            ? [
+                {
+                  merchandiseId: selectedVariant.id,
+                  quantity: 1,
+                },
+              ]
+            : []
+        }
+      >
+        {selectedVariant?.availableForSale
+          ? 'Add To Cart with Buyer Identity Without Crash Protection'
+          : 'Sold out'}
+      </AddToCartButton>
     </div>
   );
 }
@@ -293,9 +353,20 @@ function ProductOptions({option}) {
  *   onClick?: () => void;
  * }}
  */
-function AddToCartButton({analytics, children, disabled, lines, onClick}) {
+function AddToCartButton({
+  analytics,
+  children,
+  disabled,
+  lines,
+  onClick,
+  action,
+}) {
   return (
-    <CartForm route="/cart" inputs={{lines}} action={CartForm.ACTIONS.LinesAdd}>
+    <CartForm
+      route="/cart"
+      inputs={{lines}}
+      action={action || CartForm.ACTIONS.LinesAdd}
+    >
       {(fetcher) => (
         <>
           <input
@@ -303,6 +374,7 @@ function AddToCartButton({analytics, children, disabled, lines, onClick}) {
             type="hidden"
             value={JSON.stringify(analytics)}
           />
+
           <button
             type="submit"
             onClick={onClick}
